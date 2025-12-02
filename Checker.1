@@ -1,0 +1,254 @@
+import ctypes
+import ctypes.wintypes
+from screeninfo import get_monitors
+import subprocess
+import json
+
+def get_display_info():
+    """Get detailed display information including resolution and refresh rate."""
+    print("\n" + "="*50)
+    print("DISPLAY INFORMATION")
+    print("="*50)
+    
+    try:
+        # Get monitor information
+        monitors = get_monitors()
+        print(f"Number of monitors detected: {len(monitors)}")
+        
+        # Get current display settings via Windows API
+        class DEVMODE(ctypes.Structure):
+            _fields_ = [
+                ("dmDeviceName", ctypes.c_wchar * 32),
+                ("dmSpecVersion", ctypes.c_short),
+                ("dmDriverVersion", ctypes.c_short),
+                ("dmSize", ctypes.c_short),
+                ("dmDriverExtra", ctypes.c_short),
+                ("dmFields", ctypes.c_int),
+                ("dmPositionX", ctypes.c_int),
+                ("dmPositionY", ctypes.c_int),
+                ("dmDisplayOrientation", ctypes.c_int),
+                ("dmDisplayFixedOutput", ctypes.c_int),
+                ("dmColor", ctypes.c_short),
+                ("dmDuplex", ctypes.c_short),
+                ("dmYResolution", ctypes.c_short),
+                ("dmTTOption", ctypes.c_short),
+                ("dmCollate", ctypes.c_short),
+                ("dmFormName", ctypes.c_wchar * 32),
+                ("dmLogPixels", ctypes.c_short),
+                ("dmBitsPerPel", ctypes.c_int),
+                ("dmPelsWidth", ctypes.c_int),
+                ("dmPelsHeight", ctypes.c_int),
+                ("dmDisplayFlags", ctypes.c_int),
+                ("dmDisplayFrequency", ctypes.c_int),
+                ("dmICMMethod", ctypes.c_int),
+                ("dmICMIntent", ctypes.c_int),
+                ("dmMediaType", ctypes.c_int),
+                ("dmDitherType", ctypes.c_int),
+                ("dmReserved1", ctypes.c_int),
+                ("dmReserved2", ctypes.c_int),
+                ("dmPanningWidth", ctypes.c_int),
+                ("dmPanningHeight", ctypes.c_int),
+            ]
+        
+        devmode = DEVMODE()
+        devmode.dmSize = ctypes.sizeof(DEVMODE)
+        
+        # Get current settings
+        ctypes.windll.user32.EnumDisplaySettingsW(None, -1, ctypes.byref(devmode))
+        
+        print(f"\nCurrent Active Display Settings:")
+        print(f"  • Resolution: {devmode.dmPelsWidth} × {devmode.dmPelsHeight}")
+        print(f"  • Refresh Rate: {devmode.dmDisplayFrequency} Hz")
+        print(f"  • Color Depth: {devmode.dmBitsPerPel} bits per pixel")
+        
+        # Show each monitor's details
+        for i, monitor in enumerate(monitors):
+            print(f"\nMonitor {i+1}:")
+            print(f"  • Name: {monitor.name}")
+            print(f"  • Current: {monitor.width} × {monitor.height}")
+            print(f"  • Primary: {'Yes' if monitor.is_primary else 'No'}")
+            
+        return devmode.dmPelsWidth, devmode.dmPelsHeight, devmode.dmDisplayFrequency
+        
+    except Exception as e:
+        print(f"Error reading display info: {e}")
+        return None, None, None
+
+def get_audio_info():
+    """Get audio output device and quality settings."""
+    print("\n" + "="*50)
+    print("AUDIO INFORMATION")
+    print("="*50)
+    
+    try:
+        # Method 1: Using PowerShell to get detailed audio info
+        ps_script = '''
+        Add-Type -TypeDefinition @"
+        using System;
+        using System.Runtime.InteropServices;
+        
+        namespace AudioInfo {
+            public class AudioEndpoint {
+                [DllImport("ole32.dll")]
+                public static extern int CoCreateInstance(
+                    ref Guid clsid,
+                    IntPtr inner,
+                    uint context,
+                    ref Guid uuid,
+                    out IntPtr pointer);
+                    
+                [DllImport("ole32.dll")]
+                public static extern int PropVariantClear(IntPtr pvar);
+            }
+        }
+"@
+
+# Get default audio playback device
+$AudioClient = [AudioComClient.AudioClient]::new()
+$device = [AudioComClient.MMDeviceEnumerator]::new().GetDefaultAudioEndpoint(0, 0)
+
+# Get device properties
+$device.DeviceFriendlyName
+$device.State
+$device.IconPath
+
+# Get audio format info (simplified - actual format requires more complex code)
+"Current audio device info retrieved"
+'''
+        
+        # Simplified approach using system queries
+        print("Querying audio system...")
+        
+        # Get default audio device info
+        try:
+            # Try to get audio endpoint information via system queries
+            query = '''
+            Get-CimInstance -Namespace "root\\cimv2" -ClassName Win32_SoundDevice | 
+            Select-Object Name, Status, DeviceID | Format-List
+            '''
+            
+            result = subprocess.run(["powershell", "-Command", query], 
+                                  capture_output=True, text=True, timeout=5)
+            
+            if result.returncode == 0:
+                print("Audio Devices Found:")
+                print(result.stdout[:500])  # Show first 500 chars
+            else:
+                print("Could not retrieve detailed audio device info")
+        except:
+            pass
+        
+        # Get audio quality info from Windows Sound settings indirectly
+        print("\nAudio Quality Information:")
+        print("  • Checking via system registry...")
+        
+        # Common audio formats to check for
+        audio_formats = [
+            "CD Quality (16-bit, 44.1 kHz)",
+            "DVD Quality (24-bit, 48 kHz)", 
+            "Studio Quality (24-bit, 96 kHz)",
+            "High-Res (24-bit, 192 kHz)"
+        ]
+        
+        # Try to get Windows audio format setting
+        reg_query = '''
+        $path = "HKCU:\\Software\\Microsoft\\Multimedia\\Audio"
+        if (Test-Path $path) {
+            Get-ItemProperty -Path $path | Select-Object -ExpandProperty UserPreferences
+        } else {
+            "Using default Windows audio settings"
+        }
+        '''
+        
+        try:
+            reg_result = subprocess.run(["powershell", "-Command", reg_query], 
+                                      capture_output=True, text=True, timeout=5)
+            
+            if "Windows audio settings" in reg_result.stdout:
+                print("  • Windows is using default audio format settings")
+                print("  • Recommended: Check your audio device's control panel for exact format")
+            else:
+                print("  • Retrieved some audio preferences from registry")
+                
+        except Exception as e:
+            print(f"  • Registry query failed: {e}")
+        
+        print("\nFor exact audio format (sample rate/bit depth):")
+        print("  1. Right-click the speaker icon in system tray")
+        print("  2. Select 'Sounds' → 'Playback' tab")
+        print("  3. Right-click your default device → 'Properties'")
+        print("  4. Go to 'Advanced' tab")
+        
+        return True
+        
+    except Exception as e:
+        print(f"Error reading audio info: {e}")
+        return False
+
+def get_system_summary():
+    """Get a quick system summary."""
+    print("\n" + "="*50)
+    print("SYSTEM SUMMARY")
+    print("="*50)
+    
+    try:
+        # Get Windows version
+        win_info = subprocess.run(["cmd", "/c", "ver"], capture_output=True, text=True)
+        print(f"Windows Version: {win_info.stdout.strip()}")
+        
+        # Get system type (32/64 bit)
+        import platform
+        print(f"System Type: {platform.machine()} ({platform.architecture()[0]})")
+        
+        # Get CPU info
+        cpu_info = subprocess.run(["wmic", "cpu", "get", "name"], capture_output=True, text=True)
+        cpu_lines = cpu_info.stdout.strip().split('\n')
+        if len(cpu_lines) > 1:
+            print(f"CPU: {cpu_lines[1].strip()}")
+            
+    except Exception as e:
+        print(f"System info error: {e}")
+
+def main():
+    """Main function to run all checks."""
+    print("\n" + "="*60)
+    print("WINDOWS SYSTEM SETTINGS SCANNER")
+    print("="*60)
+    print("Scanning your current display and audio settings...")
+    
+    # Install required package if not present
+    try:
+        import screeninfo
+    except ImportError:
+        print("\nInstalling required package: screeninfo...")
+        subprocess.check_call(["pip", "install", "screeninfo"])
+        print("Package installed successfully!")
+    
+    # Run all checks
+    get_system_summary()
+    res_width, res_height, refresh_rate = get_display_info()
+    audio_ok = get_audio_info()
+    
+    # Display summary
+    print("\n" + "="*50)
+    print("QUICK SUMMARY")
+    print("="*50)
+    
+    if res_width and res_height:
+        print(f"Current Resolution: {res_width} × {res_height} ({refresh_rate}Hz)")
+    
+    if audio_ok:
+        print("Audio Status: Active (check Sound Control Panel for details)")
+    
+    print("\n" + "="*60)
+    print("SCAN COMPLETE")
+    print("="*60)
+    print("\nNote: For detailed audio format information,")
+    print("please check your audio device's properties in:")
+    print("Control Panel → Sound → Playback → [Your Device] → Advanced")
+    
+    # Keep window open
+    input("\nPress Enter to exit...")
+
+if __name__ == "__main__":
+    main()
